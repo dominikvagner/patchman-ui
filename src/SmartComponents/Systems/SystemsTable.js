@@ -1,4 +1,4 @@
-import React, { Fragment, useRef, useState } from 'react';
+import React, { Fragment, useRef } from 'react';
 import { TableVariant } from '@patternfly/react-table';
 import { InventoryTable } from '@redhat-cloud-services/frontend-components/Inventory';
 import { shallowEqual, useDispatch, useSelector, useStore } from 'react-redux';
@@ -10,7 +10,13 @@ import {
 } from '../../store/Reducers/InventoryEntitiesReducer';
 import { exportSystemsCSV, exportSystemsJSON, fetchSystems } from '../../Utilities/api/api';
 import { systemsListDefaultFilters, NO_ADVISORIES_TEXT } from '../../Utilities/constants';
-import { arrayFromObj, persistantParams } from '../../Utilities/Helpers';
+import {
+  arrayFromObj,
+  buildResetFilterState,
+  encodeURLParams,
+  matchesDefaultState,
+  persistantParams,
+} from '../../Utilities/Helpers';
 import {
   useBulkSelectConfig,
   useGetEntities,
@@ -36,13 +42,15 @@ const SystemsTable = ({ apply, setSearchParams, activateRemediationModal, decode
   const inventory = useRef(null);
 
   const dispatch = useDispatch();
-  const [isRemediationLoading, setRemediationLoading] = useState(false);
+  const [isRemediationLoading, setRemediationLoading] = React.useState(false);
+  const [isResetPending, setResetPending] = React.useState(false);
   const systems = useSelector(({ entities }) => entities?.rows || [], shallowEqual);
   const totalItems = useSelector(({ entities }) => entities?.total || 0);
+  const isLoading = useSelector(({ entities }) => entities?.status?.isLoading);
+  const queryParams = useSelector(({ SystemsStore }) => SystemsStore?.queryParams || {});
 
   const selectedRows = useSelector(({ entities }) => entities?.selectedRows || []);
   const areAllSelected = useSelector(({ SystemsStore }) => SystemsStore?.areAllSelected);
-  const queryParams = useSelector(({ SystemsStore }) => SystemsStore?.queryParams || {});
 
   const [appliedColumns, setAppliedColumns] = React.useState(SYSTEMS_LIST_COLUMNS);
   const [ColumnManagementModal, setColumnManagementModalOpen] = useColumnManagement(
@@ -53,14 +61,45 @@ const SystemsTable = ({ apply, setSearchParams, activateRemediationModal, decode
   const {
     systemProfile,
     selectedTags,
-    filter: queryParamsFilter,
-    search,
+    filter: queryParamsFilter = {},
+    search = '',
     page,
     perPage,
     sort,
   } = queryParams;
-  const { os: operatingSystemFilter, ...filter } = queryParamsFilter || {};
-  const osFilter = operatingSystemFilter && [
+  const patchFilters = React.useMemo(() => {
+    const nextPatchFilters = { ...queryParamsFilter };
+    delete nextPatchFilters.os;
+    delete nextPatchFilters.group_name;
+    return nextPatchFilters;
+  }, [queryParamsFilter]);
+  const inventoryFilters = React.useMemo(() => {
+    const { os, group_name } = decodedParams?.filter || {};
+
+    return {
+      ...(os !== undefined ? { os } : {}),
+      ...(group_name !== undefined ? { group_name } : {}),
+    };
+  }, [decodedParams]);
+  const operatingSystemFilter = [].concat(inventoryFilters.os || []).filter(Boolean);
+  const currentSystemsResetState = React.useMemo(
+    () => ({
+      filter: { ...patchFilters, ...inventoryFilters },
+      search,
+      ...(decodedParams?.tags !== undefined ? { tags: decodedParams.tags } : {}),
+    }),
+    [decodedParams, inventoryFilters, patchFilters, search],
+  );
+  const defaultSystemsResetState = React.useMemo(
+    () => ({
+      filter: systemsListDefaultFilters.filter,
+      search: systemsListDefaultFilters.search ?? '',
+    }),
+    [],
+  );
+  const shouldShowResetButton =
+    !isResetPending && !matchesDefaultState(currentSystemsResetState, defaultSystemsResetState);
+  const osFilter = operatingSystemFilter.length > 0 && [
     {
       osFilter: operatingSystemFilter.reduce((osFilter, os) => {
         const [osName, osVersion] = os.split(' ');
@@ -85,10 +124,52 @@ const SystemsTable = ({ apply, setSearchParams, activateRemediationModal, decode
     dispatch(changeTags(tags));
   };
 
-  const [deleteFilters] = useRemoveFilter({ search, ...filter }, apply, systemsListDefaultFilters);
-  const filterConfig = buildFilterConfig(search, filter, apply);
+  const [deleteFilters] = useRemoveFilter({ ...patchFilters, search }, apply);
+  const handleResetFilters = React.useCallback(() => {
+    const resetPatchState = buildResetFilterState(
+      { filter: patchFilters, search },
+      systemsListDefaultFilters,
+    );
+    const nextParams = { ...(decodedParams || {}) };
 
-  const activeFiltersConfig = buildActiveFiltersConfig(filter, search, deleteFilters);
+    setResetPending(true);
+    delete nextParams.filter;
+    delete nextParams.search;
+    delete nextParams.tags;
+
+    setSearchParams(encodeURLParams({ ...nextParams, ...resetPatchState }), { replace: true });
+    apply(resetPatchState);
+  }, [apply, decodedParams, patchFilters, search, setSearchParams]);
+  const handleDeleteFilters = React.useCallback(
+    (event, selected, shouldReset) => {
+      if (shouldReset) {
+        handleResetFilters();
+        return;
+      }
+
+      deleteFilters(event, selected);
+    },
+    [deleteFilters, handleResetFilters],
+  );
+
+  React.useEffect(() => {
+    if (
+      isResetPending &&
+      !isLoading &&
+      matchesDefaultState(currentSystemsResetState, defaultSystemsResetState)
+    ) {
+      setResetPending(false);
+    }
+  }, [currentSystemsResetState, defaultSystemsResetState, isLoading, isResetPending]);
+
+  const filterConfig = buildFilterConfig(search, patchFilters, apply);
+
+  const activeFiltersConfig = buildActiveFiltersConfig(
+    patchFilters,
+    search,
+    handleDeleteFilters,
+    shouldShowResetButton,
+  );
 
   const onSelect = useOnSelect(systems, selectedRows, {
     endpoint: ID_API_ENDPOINTS.systems,
@@ -150,14 +231,14 @@ const SystemsTable = ({ apply, setSearchParams, activateRemediationModal, decode
         }
         showTags
         customFilters={{
-          ...(operatingSystemFilter
+          ...(operatingSystemFilter.length > 0
             ? {
                 filters: [...(osFilter || [])],
               }
             : {}),
           patchParams: {
             search,
-            filter,
+            filter: patchFilters,
             systemProfile,
             selectedTags,
           },
@@ -216,6 +297,6 @@ SystemsTable.propTypes = {
   apply: propTypes.func.isRequired,
   setSearchParams: propTypes.func.isRequired,
   activateRemediationModal: propTypes.func.isRequired,
-  decodedParams: propTypes.func.isRequired,
+  decodedParams: propTypes.object,
 };
 export default SystemsTable;

@@ -6,9 +6,14 @@ const currentFilter = { systems_applicable: 'filter' };
 describe('PackageListStatusFilter', () => {
   it('Should set currentValue to zero and init', () => {
     const response = packageListStatusFilter(apply, currentFilter);
-    expect(response.filterValues.value).toEqual('filter');
+    expect(response.filterValues.value).toEqual(['filter']);
     expect(response.label).toEqual('Patch status');
     expect(response.type).toEqual('checkbox');
+  });
+
+  it('Should preserve checkbox arrays', () => {
+    const response = packageListStatusFilter(apply, { systems_applicable: ['gt:0'] });
+    expect(response.filterValues.value).toEqual(['gt:0']);
   });
 
   it('Should call apply with a date', () => {

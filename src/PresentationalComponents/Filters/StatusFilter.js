@@ -6,6 +6,11 @@ import messages from '../../Messages';
 
 const statusFilter = (apply, currentFilter = {}) => {
   let { update_status: currentValue } = currentFilter;
+  const currentValueStringType =
+    currentValue &&
+    ((Array.isArray(currentValue) && currentValue.map((value) => value.toString())) || [
+      currentValue.toString(),
+    ]);
 
   const updatableTypesMap = React.useMemo(
     () =>
@@ -27,7 +32,7 @@ const statusFilter = (apply, currentFilter = {}) => {
         filterByType(value);
       },
       items: updatableTypesMap,
-      value: currentValue,
+      value: currentValueStringType,
       placeholder: intl.formatMessage(messages.labelsColumnsStatusPlaceholder),
     },
   };

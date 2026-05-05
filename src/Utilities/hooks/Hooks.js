@@ -71,8 +71,8 @@ export const useSortColumn = (
   return onSort;
 };
 
-export const useRemoveFilter = (filters, callback, defaultFilters = { filter: {} }) => {
-  const removeFilter = React.useCallback((selected, resetFilters, shouldReset) => {
+export const useRemoveFilter = (filters, callback) => {
+  const removeFilter = React.useCallback((selected) => {
     let newParams = { filter: {} };
     selected.forEach((selectedItem) => {
       let { id: categoryId, chips } = selectedItem;
@@ -105,10 +105,6 @@ export const useRemoveFilter = (filters, callback, defaultFilters = { filter: {}
       }
     });
 
-    if (shouldReset) {
-      newParams = resetFilters(newParams);
-    }
-
     callback({ ...newParams });
   });
 
@@ -116,16 +112,8 @@ export const useRemoveFilter = (filters, callback, defaultFilters = { filter: {}
     removeFilter(filters);
   };
 
-  const deleteFilters = (__, selected, shouldReset) => {
-    const resetFilters = (currentFilters) => {
-      if (Object.keys(defaultFilters.filter).length > 0) {
-        currentFilters.filter = { ...currentFilters.filter, ...defaultFilters.filter };
-      }
-
-      return currentFilters;
-    };
-
-    removeFilter(selected, resetFilters, shouldReset);
+  const deleteFilters = (__, selected) => {
+    removeFilter(selected);
   };
 
   return [deleteFilters, deleteFilterGroup];
@@ -218,11 +206,13 @@ export const useGetEntities = (
 ) => {
   const { id, packageName } = config || {};
   const mounted = useRef(true);
+  const latestRequest = useRef(0);
 
   const getEntities = async (
     _items,
     { orderBy, orderDirection, page, per_page: perPage, patchParams, filters },
   ) => {
+    const requestId = ++latestRequest.current;
     const { selectedTags: activeTags = [] } = patchParams;
     const { selectedTags } = mapGlobalFilters(filters.tagFilters);
 
@@ -239,7 +229,7 @@ export const useGetEntities = (
       ...((packageName && { package_name: packageName }) || {}),
     });
 
-    if (mounted.current) {
+    if (mounted.current && requestId === latestRequest.current) {
       apply({
         page,
         perPage,

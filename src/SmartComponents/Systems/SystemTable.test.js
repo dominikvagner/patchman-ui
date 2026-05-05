@@ -5,6 +5,7 @@ import Systems from './SystemsTable';
 import { render, screen, waitFor } from '@testing-library/react';
 import { ComponentWithContext } from '../../Utilities/TestingUtilities';
 import { InventoryTable } from '@redhat-cloud-services/frontend-components/Inventory';
+import { systemsListDefaultFilters } from '../../Utilities/constants';
 initMocks();
 
 const mockState = {
@@ -19,7 +20,12 @@ const mockState = {
     total: systemRows.length,
   },
   SystemsStore: {
-    queryParams: {},
+    queryParams: systemsListDefaultFilters,
+  },
+  GlobalFilterStore: {
+    selectedTags: [],
+    selectedGlobalTags: [],
+    systemProfile: undefined,
   },
 };
 const initStore = (state) => {
@@ -27,10 +33,15 @@ const initStore = (state) => {
   return mockStore(state);
 };
 
-const renderComponent = async (mockedStore) => {
+const renderComponent = async (mockedStore, componentProps = {}) => {
   render(
     <ComponentWithContext renderOptions={{ store: initStore(mockedStore) }}>
-      <Systems />
+      <Systems
+        apply={jest.fn()}
+        activateRemediationModal={jest.fn()}
+        setSearchParams={jest.fn()}
+        {...componentProps}
+      />
     </ComponentWithContext>,
   );
 
@@ -50,10 +61,19 @@ describe('SystemsTable', () => {
       ...mockState,
       SystemsStore: {
         queryParams: {
-          filter: { packages_updatable: 'eq:0' },
+          ...systemsListDefaultFilters,
+          filter: {
+            ...systemsListDefaultFilters.filter,
+            packages_updatable: 'eq:0',
+          },
           selectedTags: ['tags=test-tag'],
           systemProfile: { ansible: { controller_version: 'not_nil' } },
         },
+      },
+      GlobalFilterStore: {
+        selectedTags: ['tags=test-tag'],
+        selectedGlobalTags: [],
+        systemProfile: { ansible: { controller_version: 'not_nil' } },
       },
     };
 
@@ -63,8 +83,8 @@ describe('SystemsTable', () => {
         expect.objectContaining({
           customFilters: {
             patchParams: {
-              filter: { packages_updatable: 'eq:0' },
-              search: undefined,
+              filter: { stale: [true, false], packages_updatable: 'eq:0' },
+              search: '',
               selectedTags: ['tags=test-tag'],
               systemProfile: { ansible: { controller_version: 'not_nil' } },
             },
@@ -132,7 +152,7 @@ describe('SystemsTable', () => {
                   'aria-label': 'search-field',
                   onChange: expect.any(Function),
                   placeholder: 'Filter by name',
-                  value: undefined,
+                  value: '',
                 },
                 label: 'System',
                 type: 'text',
@@ -151,7 +171,7 @@ describe('SystemsTable', () => {
                   ],
                   onChange: expect.any(Function),
                   placeholder: 'Filter by status',
-                  value: undefined,
+                  value: ['true', 'false'],
                 },
                 label: 'Status',
                 type: 'checkbox',
@@ -206,22 +226,207 @@ describe('SystemsTable', () => {
           deleteTitle: 'Reset filters',
           filters: [
             {
-              category: 'Patch status',
+              category: 'Status',
               chips: [
                 {
-                  id: 'eq:0',
-                  name: 'Systems up to date',
-                  value: 'eq:0',
+                  id: true,
+                  name: 'Stale',
+                  value: true,
+                },
+                {
+                  id: false,
+                  name: 'Fresh',
+                  value: false,
                 },
               ],
-              id: 'packages_updatable',
+              id: 'stale',
             },
           ],
           onDelete: expect.any(Function),
+          showDeleteButton: false,
         },
       }),
       {},
     );
+  });
+
+  it('should hide reset button when systems filters match defaults', async () => {
+    const defaultFilteredState = {
+      ...mockState,
+      SystemsStore: {
+        queryParams: systemsListDefaultFilters,
+      },
+    };
+
+    await renderComponent(defaultFilteredState);
+    expect(InventoryTable).toHaveBeenCalledWith(
+      expect.objectContaining({
+        activeFiltersConfig: {
+          deleteTitle: 'Reset filters',
+          filters: [
+            {
+              category: 'Status',
+              chips: [
+                {
+                  id: true,
+                  name: 'Stale',
+                  value: true,
+                },
+                {
+                  id: false,
+                  name: 'Fresh',
+                  value: false,
+                },
+              ],
+              id: 'stale',
+            },
+          ],
+          onDelete: expect.any(Function),
+          showDeleteButton: false,
+        },
+      }),
+      {},
+    );
+  });
+
+  it('should show reset button when non-default filters are present alongside defaults', async () => {
+    const defaultFilteredState = {
+      ...mockState,
+      SystemsStore: {
+        queryParams: systemsListDefaultFilters,
+      },
+    };
+
+    await renderComponent(defaultFilteredState, {
+      decodedParams: {
+        filter: {
+          group_name: ['test-group'],
+        },
+      },
+    });
+    expect(InventoryTable).toHaveBeenCalledWith(
+      expect.objectContaining({
+        activeFiltersConfig: expect.objectContaining({
+          showDeleteButton: true,
+        }),
+      }),
+      {},
+    );
+  });
+
+  it('should show reset button when inventory tag filters are active', async () => {
+    const defaultFilteredState = {
+      ...mockState,
+      SystemsStore: {
+        queryParams: systemsListDefaultFilters,
+      },
+    };
+
+    await renderComponent(defaultFilteredState, {
+      decodedParams: {
+        tags: ['foo/bar=baz'],
+      },
+    });
+    expect(InventoryTable).toHaveBeenCalledWith(
+      expect.objectContaining({
+        activeFiltersConfig: expect.objectContaining({
+          showDeleteButton: true,
+        }),
+      }),
+      {},
+    );
+  });
+
+  it('should not duplicate operating system filters in active filter chips', async () => {
+    const defaultFilteredState = {
+      ...mockState,
+      SystemsStore: {
+        queryParams: systemsListDefaultFilters,
+      },
+    };
+
+    await renderComponent(defaultFilteredState, {
+      decodedParams: {
+        filter: {
+          os: ['RHEL 9.1'],
+        },
+      },
+    });
+    expect(InventoryTable).toHaveBeenCalledWith(
+      expect.objectContaining({
+        activeFiltersConfig: {
+          deleteTitle: 'Reset filters',
+          filters: [
+            {
+              category: 'Status',
+              chips: [
+                {
+                  id: true,
+                  name: 'Stale',
+                  value: true,
+                },
+                {
+                  id: false,
+                  name: 'Fresh',
+                  value: false,
+                },
+              ],
+              id: 'stale',
+            },
+          ],
+          onDelete: expect.any(Function),
+          showDeleteButton: true,
+        },
+      }),
+      {},
+    );
+  });
+
+  it('should clear URL-backed inventory filters immediately on reset', async () => {
+    const apply = jest.fn();
+    const setSearchParams = jest.fn();
+    const filteredState = {
+      ...mockState,
+      SystemsStore: {
+        queryParams: {
+          ...systemsListDefaultFilters,
+          filter: {
+            ...systemsListDefaultFilters.filter,
+            packages_updatable: 'eq:0',
+          },
+        },
+      },
+    };
+
+    await renderComponent(filteredState, {
+      apply,
+      setSearchParams,
+      decodedParams: {
+        page: 2,
+        tags: ['foo/bar=baz'],
+        filter: {
+          os: ['RHEL 9.1'],
+          packages_updatable: 'eq:0',
+        },
+      },
+    });
+
+    const inventoryTableProps = InventoryTable.mock.calls.at(-1)[0];
+    inventoryTableProps.activeFiltersConfig.onDelete({}, [], true);
+
+    await waitFor(() =>
+      expect(InventoryTable.mock.calls.at(-1)[0].activeFiltersConfig.showDeleteButton).toBe(false),
+    );
+    expect(setSearchParams).toHaveBeenCalledWith('?page=2&filter%5Bstale%5D=in%3Atrue%2Cfalse', {
+      replace: true,
+    });
+    expect(apply).toHaveBeenCalledWith({
+      filter: {
+        stale: [true, false],
+        packages_updatable: undefined,
+      },
+      search: '',
+    });
   });
 
   it('should provide bulkSelect config', async () => {

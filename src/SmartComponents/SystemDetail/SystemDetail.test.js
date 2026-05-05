@@ -2,9 +2,10 @@ import SystemDetail from './SystemDetail';
 import { useLocation, BrowserRouter as Router } from 'react-router-dom';
 import { Provider, useSelector } from 'react-redux';
 import configureStore from 'redux-mock-store';
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { systemAdvisoryRows, systemPackages } from '../../Utilities/RawDataForTesting';
 import { storeListDefaults } from '../../Utilities/constants';
+import '@testing-library/jest-dom';
 
 const mockState = {
   metadata: {
@@ -38,38 +39,55 @@ const initStore = (state) => {
 
 jest.mock('react-router-dom', () => ({
   ...jest.requireActual('react-router-dom'),
-  useLocation: jest.fn(() => ({ state: 'advisories' })),
+  useLocation: jest.fn(() => ({ state: {} })),
 }));
 let store = initStore(mockState);
 
 describe('SystemDetail.js', () => {
-  it('Should match the snapshots', () => {
+  beforeEach(() => {
+    useLocation.mockImplementation(() => ({ state: {} }));
     useSelector.mockImplementation((callback) =>
       callback({
         SystemAdvisoryListStore: mockState,
         SystemPackageListStore: { ...storeListDefaults, rows: systemPackages },
       }),
     );
-
-    const { asFragment } = render(
-      <Provider store={store}>
-        <Router>
-          <SystemDetail />
-        </Router>
-      </Provider>,
-    );
-    expect(asFragment()).toMatchSnapshot();
   });
 
-  it('Should match the snapshot when Package tab is active by default', () => {
-    useLocation.mockImplementation(() => ({ state: { tab: 'packages' } }));
-    const { asFragment } = render(
+  it('shows advisories by default', () => {
+    render(
       <Provider store={store}>
         <Router>
-          <SystemDetail />
+          <SystemDetail inventoryId='test' />
         </Router>
       </Provider>,
     );
-    expect(asFragment()).toMatchSnapshot();
+
+    expect(screen.getByRole('tab', { name: /advisories/i })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    expect(screen.getByRole('tab', { name: /packages/i })).toHaveAttribute(
+      'aria-selected',
+      'false',
+    );
+  });
+
+  it('shows packages when package tab is requested in location state', () => {
+    useLocation.mockImplementation(() => ({ state: { tab: 'packages' } }));
+
+    render(
+      <Provider store={store}>
+        <Router>
+          <SystemDetail inventoryId='test' />
+        </Router>
+      </Provider>,
+    );
+
+    expect(screen.getByRole('tab', { name: /packages/i })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: /advisories/i })).toHaveAttribute(
+      'aria-selected',
+      'false',
+    );
   });
 });

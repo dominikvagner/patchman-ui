@@ -20,6 +20,10 @@ import {
 import { remediationIdentifiers } from '../../Utilities/constants';
 import {
   arrayFromObj,
+  buildApiFilters,
+  buildResetFilterState,
+  encodeURLParams,
+  matchesDefaultState,
   persistantParams,
   remediationProvider,
   removeUndefinedObjectKeys,
@@ -36,7 +40,10 @@ import {
 import { intl } from '../../Utilities/IntlProvider';
 import { ADVISORY_SYSTEMS_COLUMNS, systemsRowActions } from '../Systems/SystemsListAssets';
 import AsyncRemediationButton from '../Remediation/AsyncRemediationButton';
-import { buildActiveFiltersConfig, mergeInventoryColumns } from '../../Utilities/SystemsHelpers';
+import {
+  buildActiveFiltersConfig,
+  mergeInventoryColumns,
+} from '../../Utilities/SystemsHelpers';
 import advisoryStatusFilter from '../../PresentationalComponents/Filters/AdvisoryStatusFilter';
 
 const AdvisorySystemsTable = ({
@@ -56,7 +63,15 @@ const AdvisorySystemsTable = ({
   );
   const selectedRows = useSelector(({ entities }) => entities?.selectedRows || []);
 
-  const { systemProfile, selectedTags, filter, search, page, perPage, sort } = queryParams;
+  const {
+    systemProfile,
+    selectedTags,
+    filter = {},
+    search = '',
+    page,
+    perPage,
+    sort,
+  } = queryParams;
 
   const [appliedColumns, setAppliedColumns] = React.useState(ADVISORY_SYSTEMS_COLUMNS);
   const [ColumnManagementModal, setColumnManagementModalOpen] = useColumnManagement(
@@ -64,7 +79,60 @@ const AdvisorySystemsTable = ({
     (newColumns) => setAppliedColumns(newColumns),
   );
 
-  const [deleteFilters] = useRemoveFilter({ search, ...filter }, apply);
+  const patchFilters = React.useMemo(() => {
+    const nextPatchFilters = { ...filter };
+    delete nextPatchFilters.os;
+    delete nextPatchFilters.group_name;
+    return nextPatchFilters;
+  }, [filter]);
+  const inventoryFilters = React.useMemo(() => {
+    const { os, group_name } = decodedParams?.filter || {};
+
+    return {
+      ...(os !== undefined ? { os } : {}),
+      ...(group_name !== undefined ? { group_name } : {}),
+    };
+  }, [decodedParams]);
+  const currentResetState = React.useMemo(
+    () => ({
+      filter: { ...patchFilters, ...inventoryFilters },
+      search,
+      ...(decodedParams?.tags !== undefined ? { tags: decodedParams.tags } : {}),
+    }),
+    [decodedParams, inventoryFilters, patchFilters, search],
+  );
+  const shouldShowDeleteButton = !matchesDefaultState(currentResetState, {});
+  const currentQueryParams = React.useMemo(
+    () => ({
+      ...queryParams,
+      filter: buildApiFilters(patchFilters, {
+        osFilter: decodedParams?.filter?.os,
+        hostGroupFilter: decodedParams?.filter?.group_name,
+      }),
+    }),
+    [decodedParams, patchFilters, queryParams],
+  );
+
+  const [deleteFilters] = useRemoveFilter({ search, ...patchFilters }, apply);
+  const handleDeleteFilters = React.useCallback(
+    (event, selected, shouldReset) => {
+      if (shouldReset) {
+        const resetPatchState = buildResetFilterState({ filter: patchFilters, search });
+        const nextParams = { ...(decodedParams || {}) };
+
+        delete nextParams.filter;
+        delete nextParams.search;
+        delete nextParams.tags;
+
+        setSearchParams(encodeURLParams(nextParams), { replace: true });
+        apply(resetPatchState);
+        return;
+      }
+
+      deleteFilters(event, selected);
+    },
+    [apply, decodedParams, deleteFilters, patchFilters, search, setSearchParams],
+  );
 
   const filterConfig = {
     items: [
@@ -74,15 +142,21 @@ const AdvisorySystemsTable = ({
         intl.formatMessage(messages.labelsFiltersSystemsSearchTitle),
         intl.formatMessage(messages.labelsFiltersSystemsSearchPlaceholder),
       ),
-      advisoryStatusFilter(apply, filter),
+      advisoryStatusFilter(apply, patchFilters),
     ],
   };
 
-  const activeFiltersConfig = buildActiveFiltersConfig(filter, search, deleteFilters);
+  const activeFiltersConfig = buildActiveFiltersConfig(
+    patchFilters,
+    search,
+    handleDeleteFilters,
+    shouldShowDeleteButton,
+    messages.labelsFiltersClear,
+  );
 
   const onSelect = useOnSelect(systems, selectedRows, {
     endpoint: ID_API_ENDPOINTS.advisorySystems(advisoryName),
-    queryParams,
+    queryParams: currentQueryParams,
     selectionDispatcher: systemSelectAction,
     totalItems,
   });
@@ -98,7 +172,7 @@ const AdvisorySystemsTable = ({
 
   const onExport = useOnExport(
     advisoryName,
-    queryParams,
+    currentQueryParams,
     {
       csv: exportAdvisorySystemsCSV,
       json: exportAdvisorySystemsJSON,
@@ -119,7 +193,7 @@ const AdvisorySystemsTable = ({
     { total_items: totalItems },
     systems,
     null,
-    queryParams,
+    currentQueryParams,
   );
 
   return (
@@ -142,7 +216,7 @@ const AdvisorySystemsTable = ({
         customFilters={{
           patchParams: {
             search,
-            filter,
+            filter: patchFilters,
             systemProfile,
             selectedTags,
           },

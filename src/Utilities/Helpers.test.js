@@ -1,11 +1,17 @@
 /* eslint-disable */
 import { SortByDirection } from '@patternfly/react-table';
-import { publicDateOptions, remediationIdentifiers } from '../Utilities/constants';
+import {
+  packagesListDefaultFilters,
+  publicDateOptions,
+  remediationIdentifiers,
+  systemsListDefaultFilters,
+} from '../Utilities/constants';
 import {
   addOrRemoveItemFromSet,
   arrayFromObj,
   buildApiFilters,
   buildFilterChips,
+  buildResetFilterState,
   changeListParams,
   convertLimitOffset,
   createAdvisoriesIcons,
@@ -22,6 +28,7 @@ import {
   getSeverityByCveImpact,
   handlePatchLink,
   mapGlobalFilters,
+  matchesDefaultState,
   persistantParams,
   remediationProvider,
   transformPairs,
@@ -310,6 +317,60 @@ describe('Helpers tests', () => {
       expect(buildFilterChips(filters, search)).toEqual(result);
     },
   );
+
+  it('matchesDefaultState: should treat URL-decoded default values as defaults', () => {
+    expect(
+      matchesDefaultState({ filter: { stale: ['true', 'false'] }, search: '' }, systemsListDefaultFilters),
+    ).toEqual(true);
+  });
+
+  it('matchesDefaultState: should treat single-value defaults from URL as defaults', () => {
+    expect(
+      matchesDefaultState(
+        {
+          filter: { systems_applicable: 'gt:0' },
+          search: '',
+        },
+        packagesListDefaultFilters,
+      ),
+    ).toEqual(true);
+  });
+
+  it('matchesDefaultState: should compare normalized top-level state', () => {
+    expect(
+      matchesDefaultState(
+        {
+          filter: { stale: ['false', 'true'] },
+          tags: ['foo/bar=baz'],
+        },
+        {
+          filter: { stale: [true, false] },
+          tags: ['foo/bar=baz'],
+        },
+      ),
+    ).toEqual(true);
+  });
+
+  it('buildResetFilterState: should replace current filters with defaults', () => {
+    expect(
+      buildResetFilterState(
+        {
+          filter: {
+            systems_applicable: ['eq:0'],
+            advisory_type: ['bugfix'],
+          },
+          search: 'kernel',
+        },
+        packagesListDefaultFilters,
+      ),
+    ).toEqual({
+      filter: {
+        systems_applicable: ['gt:0'],
+        advisory_type: undefined,
+      },
+      search: '',
+    });
+  });
 
   it.each`
     oldParams            | newParams           | result

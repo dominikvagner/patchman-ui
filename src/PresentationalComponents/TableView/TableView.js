@@ -6,7 +6,13 @@ import PropTypes from 'prop-types';
 import React from 'react';
 import messages from '../../Messages';
 import AsyncRemediationButton from '../../SmartComponents/Remediation/AsyncRemediationButton';
-import { arrayFromObj, buildFilterChips, convertLimitOffset } from '../../Utilities/Helpers';
+import {
+  arrayFromObj,
+  buildResetFilterState,
+  buildFilterChips,
+  convertLimitOffset,
+  matchesDefaultState,
+} from '../../Utilities/Helpers';
 import { useRemoveFilter, useBulkSelectConfig } from '../../Utilities/hooks';
 import { intl } from '../../Utilities/IntlProvider';
 import TableFooter from './TableFooter';
@@ -46,10 +52,41 @@ const TableView = ({
     [metadata.limit, metadata.offset],
   );
 
-  const [deleteFilters] = useRemoveFilter(filter, apply, defaultFilters);
+  const [deleteFilters] = useRemoveFilter({ ...filter, search }, apply);
   const selectedCount = selectedRows && arrayFromObj(selectedRows).length;
   const { code, hasError, isLoading } = status;
   const bulkSelectConfig = useBulkSelectConfig(selectedCount, onSelect, metadata, rows, onCollapse);
+  const activeFilters = React.useMemo(
+    () => buildFilterChips(filter, search, searchChipLabel),
+    [filter, search, searchChipLabel],
+  );
+  const hasDefaultFilters = React.useMemo(
+    () =>
+      !!defaultFilters &&
+      (defaultFilters.search !== undefined || Object.keys(defaultFilters.filter || {}).length > 0),
+    [defaultFilters],
+  );
+  const currentFilterState = React.useMemo(() => ({ filter, search }), [filter, search]);
+  const shouldShowResetButton = React.useMemo(
+    () => hasDefaultFilters && !matchesDefaultState(currentFilterState, defaultFilters),
+    [currentFilterState, defaultFilters, hasDefaultFilters],
+  );
+  const shouldShowDeleteButton = React.useMemo(
+    () => (hasDefaultFilters ? shouldShowResetButton : activeFilters.length > 0),
+    [activeFilters.length, hasDefaultFilters, shouldShowResetButton],
+  );
+  const handleDeleteFilters = React.useCallback(
+    (event, selected, shouldReset) => {
+      if (shouldReset && hasDefaultFilters) {
+        apply(buildResetFilterState({ filter, search }, defaultFilters));
+        return;
+      }
+
+      const chipsToDelete = selected?.length ? selected : activeFilters;
+      deleteFilters(event, chipsToDelete);
+    },
+    [activeFilters, apply, defaultFilters, deleteFilters, filter, hasDefaultFilters, search],
+  );
 
   const [isColumnMgmtModalOpen, setColumnMgmtModalOpen] = React.useState(false);
   const [appliedColumns, setAppliedColumns] = React.useState(columns);
@@ -87,7 +124,7 @@ const TableView = ({
           <PrimaryToolbar
             pagination={
               isLoading ? (
-                <Skeleton fontSize='xl' width='200px' style={{ margin: 10 }} />
+                <Skeleton fontSize='xl' width='200px' />
               ) : (
                 {
                   itemCount: metadata.total_items,
@@ -103,11 +140,12 @@ const TableView = ({
             }
             filterConfig={filterConfig}
             activeFiltersConfig={{
-              filters: buildFilterChips(filter, search, searchChipLabel),
-              onDelete: deleteFilters,
+              filters: activeFilters,
+              onDelete: handleDeleteFilters,
               deleteTitle: intl.formatMessage(
-                (defaultFilters && messages.labelsFiltersReset) || messages.labelsFiltersClear,
+                hasDefaultFilters ? messages.labelsFiltersReset : messages.labelsFiltersClear,
               ),
+              showDeleteButton: shouldShowDeleteButton,
             }}
             actionsConfig={{
               actions: [

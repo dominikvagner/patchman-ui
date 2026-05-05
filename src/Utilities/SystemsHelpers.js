@@ -19,19 +19,24 @@ export const buildFilterConfig = (search, filter, apply) => ({
   ],
 });
 
-export const buildActiveFiltersConfig = (filter, search, deleteFilters) => {
-  if (filter?.group_name?.length === 0) {
-    delete filter.group_name;
-  }
+export const buildActiveFiltersConfig = (
+  filter,
+  search,
+  deleteFilters,
+  showDeleteButton,
+  deleteTitle = messages.labelsFiltersReset,
+) => {
+  const filters = buildFilterChips(
+    filter,
+    search,
+    intl.formatMessage(messages.labelsFiltersSystemsSearchTitle),
+  );
 
   return {
-    filters: buildFilterChips(
-      filter,
-      search,
-      intl.formatMessage(messages.labelsFiltersSystemsSearchTitle),
-    ),
+    filters,
     onDelete: deleteFilters,
-    deleteTitle: intl.formatMessage(messages.labelsFiltersReset),
+    deleteTitle: intl.formatMessage(deleteTitle),
+    showDeleteButton: showDeleteButton ?? filters.length > 0,
   };
 };
 

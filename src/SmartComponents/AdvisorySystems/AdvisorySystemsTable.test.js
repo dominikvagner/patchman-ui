@@ -31,9 +31,9 @@ const initStore = (state) => {
   return mockStore(state);
 };
 
-const renderComponent = async (mockedStore) => {
+const renderComponent = async (mockedStore, renderOptions = {}) => {
   render(
-    <ComponentWithContext renderOptions={{ store: initStore(mockedStore) }}>
+    <ComponentWithContext renderOptions={{ store: initStore(mockedStore), ...renderOptions }}>
       <AdvisorySystems advisoryName='RHSA-2020:2755' />
     </ComponentWithContext>,
   );
@@ -137,7 +137,7 @@ describe('AdvisorySystemsTable.js', () => {
                   'aria-label': 'search-field',
                   onChange: expect.any(Function),
                   placeholder: 'Filter by name',
-                  value: undefined,
+                  value: '',
                 },
                 label: 'System',
                 type: 'text',
@@ -194,7 +194,7 @@ describe('AdvisorySystemsTable.js', () => {
     expect(InventoryTable).toHaveBeenCalledWith(
       expect.objectContaining({
         activeFiltersConfig: {
-          deleteTitle: 'Reset filters',
+          deleteTitle: 'Clear filters',
           filters: [
             {
               category: 'Status',
@@ -209,7 +209,24 @@ describe('AdvisorySystemsTable.js', () => {
             },
           ],
           onDelete: expect.any(Function),
+          showDeleteButton: true,
         },
+      }),
+      {},
+    );
+  });
+
+  it('should show clear filters when inventory-managed filters are active', async () => {
+    await renderComponent(mockState, {
+      initialEntries: ['/?filter%5Bos%5D=in%3ARHEL%209.1'],
+    });
+
+    expect(InventoryTable).toHaveBeenCalledWith(
+      expect.objectContaining({
+        activeFiltersConfig: expect.objectContaining({
+          deleteTitle: 'Clear filters',
+          showDeleteButton: true,
+        }),
       }),
       {},
     );

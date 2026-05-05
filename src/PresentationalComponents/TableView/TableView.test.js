@@ -2,9 +2,10 @@ import TableView from './TableView';
 import { render, screen, waitFor } from '@testing-library/react';
 import { Provider, useSelector } from 'react-redux';
 import configureStore from 'redux-mock-store';
-import { storeListDefaults } from '../../Utilities/constants';
+import { packagesListDefaultFilters, storeListDefaults } from '../../Utilities/constants';
 import { systemPackages } from '../../Utilities/RawDataForTesting';
 import userEvent from '@testing-library/user-event';
+import '@testing-library/jest-dom';
 
 const testObj = {
   columns: [],
@@ -132,6 +133,108 @@ describe('TableView', () => {
       </Provider>,
     );
     expect(asFragment()).toMatchSnapshot();
+  });
+
+  it('Should hide reset filters when current filters match defaults', () => {
+    render(
+      <Provider store={store}>
+        <TableView
+          {...testObj}
+          defaultFilters={packagesListDefaultFilters}
+          store={{
+            rows: [],
+            metadata: { total_items: 10 },
+            status: mockState.status,
+            queryParams: packagesListDefaultFilters,
+          }}
+        />
+      </Provider>,
+    );
+
+    expect(screen.queryByRole('button', { name: /reset filters/i })).not.toBeInTheDocument();
+  });
+
+  it('Should show reset filters when current filters differ from defaults', () => {
+    render(
+      <Provider store={store}>
+        <TableView
+          {...testObj}
+          defaultFilters={packagesListDefaultFilters}
+          store={{
+            rows: [],
+            metadata: { total_items: 10 },
+            status: mockState.status,
+            queryParams: { filter: { systems_applicable: ['eq:0'] } },
+          }}
+        />
+      </Provider>,
+    );
+
+    expect(screen.getByRole('button', { name: /reset filters/i })).toBeVisible();
+  });
+
+  it('Should show clear filters when filters are active and no defaults are provided', () => {
+    render(
+      <Provider store={store}>
+        <TableView
+          {...testObj}
+          store={{
+            rows: [],
+            metadata: { total_items: 10 },
+            status: mockState.status,
+            queryParams: { search: 'kernel' },
+          }}
+        />
+      </Provider>,
+    );
+
+    expect(screen.getByRole('button', { name: /clear filters/i })).toBeVisible();
+  });
+
+  it('Should clear active filters when no defaults are provided', async () => {
+    const apply = jest.fn();
+
+    render(
+      <Provider store={store}>
+        <TableView
+          {...testObj}
+          apply={apply}
+          store={{
+            rows: [],
+            metadata: { total_items: 10 },
+            status: mockState.status,
+            queryParams: { search: 'kernel' },
+          }}
+        />
+      </Provider>,
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: /clear filters/i }));
+
+    await waitFor(() =>
+      expect(apply).toHaveBeenCalledWith({
+        filter: {},
+        search: '',
+      }),
+    );
+  });
+
+  it('Should hide clear filters when there are no active filters and no defaults are provided', () => {
+    render(
+      <Provider store={store}>
+        <TableView
+          {...testObj}
+          store={{
+            rows: [],
+            metadata: { total_items: 10 },
+            status: mockState.status,
+            queryParams: {},
+          }}
+        />
+      </Provider>,
+    );
+
+    expect(screen.queryByRole('button', { name: /clear filters/i })).not.toBeInTheDocument();
   });
 
   it('Should unselect', async () => {

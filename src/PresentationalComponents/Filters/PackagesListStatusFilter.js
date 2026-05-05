@@ -5,6 +5,11 @@ import messages from '../../Messages';
 
 const packagesListStatusFilter = (apply, currentFilter = {}) => {
   let { systems_applicable: currentValue } = currentFilter;
+  const currentValueStringType =
+    currentValue &&
+    ((Array.isArray(currentValue) && currentValue.map((value) => value.toString())) || [
+      currentValue.toString(),
+    ]);
 
   const filterByType = (value) => {
     apply({ filter: { systems_applicable: value } });
@@ -18,7 +23,7 @@ const packagesListStatusFilter = (apply, currentFilter = {}) => {
         filterByType(value);
       },
       items: packagesListUpdatableTypes,
-      value: currentValue,
+      value: currentValueStringType,
       placeholder: intl.formatMessage(messages.labelsFiltersUpdatablePlaceholder),
     },
   };

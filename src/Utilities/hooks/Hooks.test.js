@@ -2,14 +2,14 @@ import { SortByDirection } from '@patternfly/react-table';
 import {
   useEntitlements,
   useHandleRefresh,
+  useGetEntities,
   usePagePerPage,
   usePerPageSelect,
   useRemoveFilter,
   useSetPage,
   useSortColumn,
 } from './Hooks';
-import { packagesListDefaultFilters } from '../constants';
-import { renderHook } from '@testing-library/react';
+import { act, renderHook } from '@testing-library/react';
 
 jest.mock('@redhat-cloud-services/frontend-components/useChrome', () => ({
   useChrome: jest.fn(() => ({
@@ -113,21 +113,6 @@ describe('Custom hooks tests', () => {
   );
 
   it.each`
-    filter                  | apply        | selected                                         | finalResult
-    ${{ advisory_type: 2 }} | ${jest.fn()} | ${[{ id: 'advisory_type', chips: [{ id: 1 }] }]} | ${{ filter: { advisory_type: undefined, systems_applicable: ['gt:0'] } }}
-    ${{ search: 'asd' }}    | ${jest.fn()} | ${[{ id: 'search' }]}                            | ${{ filter: { systems_applicable: ['gt:0'] }, search: '' }}
-  `(
-    'useRemoveFilter: should reset to default filters for $filter while ',
-    ({ filter, apply, finalResult, selected }) => {
-      const { result } = renderHook(() =>
-        useRemoveFilter(filter, apply, packagesListDefaultFilters),
-      );
-      result.current[0]({}, selected, true);
-      expect(apply).toHaveBeenCalledWith(finalResult);
-    },
-  );
-
-  it.each`
     metadata                     | apply        | input                        | finalResult
     ${{ limit: 10, offset: 0 }}  | ${jest.fn()} | ${{ page: 2, per_page: 10 }} | ${{ offset: 10 }}
     ${{ limit: 10, offset: 10 }} | ${jest.fn()} | ${{ page: 2, per_page: 20 }} | ${{ offset: 20, limit: 20 }}
@@ -146,5 +131,77 @@ describe('Custom hooks tests', () => {
     const { result } = renderHook(() => useEntitlements());
     const finalResult = await result.current();
     expect(finalResult).toEqual({ 'test-entitelement': true });
+  });
+
+  it('useGetEntities: should ignore stale response side effects', async () => {
+    const apply = jest.fn();
+    const setSearchParams = jest.fn();
+    let resolveFirst;
+    let resolveSecond;
+    const fetchApi = jest
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveFirst = () =>
+              resolve({
+                data: [],
+                meta: { total_items: 0 },
+              });
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveSecond = () =>
+              resolve({
+                data: [],
+                meta: { total_items: 0 },
+              });
+          }),
+      );
+
+    const { result } = renderHook(() => useGetEntities(fetchApi, apply, {}, setSearchParams));
+
+    const firstRequest = result.current(null, {
+      orderBy: 'display_name',
+      orderDirection: 'ASC',
+      page: 1,
+      per_page: 20,
+      patchParams: { filter: { packages_updatable: 'eq:0' } },
+      filters: {},
+    });
+    const secondRequest = result.current(null, {
+      orderBy: 'display_name',
+      orderDirection: 'ASC',
+      page: 2,
+      per_page: 20,
+      patchParams: { filter: { stale: [true, false] } },
+      filters: {},
+    });
+
+    await act(async () => {
+      resolveSecond();
+      await secondRequest;
+    });
+
+    await act(async () => {
+      resolveFirst();
+      await firstRequest;
+    });
+
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect(apply).toHaveBeenCalledWith({
+      page: 2,
+      perPage: 20,
+      sort: 'display_name',
+    });
+    expect(setSearchParams).toHaveBeenCalledTimes(1);
+    expect(setSearchParams).toHaveBeenCalledWith(
+      '?page=2&perPage=20&sort=display_name&filter%5Bstale%5D=in%3Atrue%2Cfalse',
+      {
+        replace: true,
+      },
+    );
   });
 });

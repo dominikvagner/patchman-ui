@@ -29,14 +29,21 @@ import {
 import { remediationIdentifiers } from '../../Utilities/constants';
 import {
   arrayFromObj,
+  buildApiFilters,
+  buildResetFilterState,
   buildFilterChips,
   decodeQueryparams,
+  encodeURLParams,
   filterRemediatablePackageSystems,
+  matchesDefaultState,
   persistantParams,
   remediationProviderWithPairs,
   removeUndefinedObjectKeys,
 } from '../../Utilities/Helpers';
-import { mergeInventoryColumns, osParamParser } from '../../Utilities/SystemsHelpers';
+import {
+  mergeInventoryColumns,
+  osParamParser,
+} from '../../Utilities/SystemsHelpers';
 import {
   useBulkSelectConfig,
   useGetEntities,
@@ -66,7 +73,29 @@ const PackageSystems = ({ packageName }) => {
     ({ PackageSystemsStore }) => PackageSystemsStore?.queryParams || {},
   );
 
-  const { systemProfile, selectedTags, filter, search, sort, page, perPage } = queryParams;
+  const {
+    systemProfile,
+    selectedTags,
+    filter = {},
+    search = '',
+    sort,
+    page,
+    perPage,
+  } = queryParams;
+  const patchFilters = React.useMemo(() => {
+    const nextPatchFilters = { ...filter };
+    delete nextPatchFilters.os;
+    delete nextPatchFilters.group_name;
+    return nextPatchFilters;
+  }, [filter]);
+  const inventoryFilters = React.useMemo(() => {
+    const { os, group_name } = decodedParams?.filter || {};
+
+    return {
+      ...(os !== undefined ? { os } : {}),
+      ...(group_name !== undefined ? { group_name } : {}),
+    };
+  }, [decodedParams]);
 
   const apply = useCallback((params) => {
     dispatch(changePackageSystemsParams(params));
@@ -91,7 +120,46 @@ const PackageSystems = ({ packageName }) => {
     (newColumns) => setAppliedColumns(newColumns),
   );
 
-  const [deleteFilters] = useRemoveFilter({ ...filter, search }, apply);
+  const currentResetState = React.useMemo(
+    () => ({
+      filter: { ...patchFilters, ...inventoryFilters },
+      search,
+      ...(decodedParams?.tags !== undefined ? { tags: decodedParams.tags } : {}),
+    }),
+    [decodedParams, inventoryFilters, patchFilters, search],
+  );
+  const shouldShowDeleteButton = !matchesDefaultState(currentResetState, {});
+  const currentQueryParams = React.useMemo(
+    () => ({
+      ...queryParams,
+      filter: buildApiFilters(patchFilters, {
+        osFilter: decodedParams?.filter?.os,
+        hostGroupFilter: decodedParams?.filter?.group_name,
+      }),
+    }),
+    [decodedParams, patchFilters, queryParams],
+  );
+
+  const [deleteFilters] = useRemoveFilter({ ...patchFilters, search }, apply);
+  const handleDeleteFilters = React.useCallback(
+    (event, selected, shouldReset) => {
+      if (shouldReset) {
+        const resetPatchState = buildResetFilterState({ filter: patchFilters, search });
+        const nextParams = { ...(decodedParams || {}) };
+
+        delete nextParams.filter;
+        delete nextParams.search;
+        delete nextParams.tags;
+
+        setSearchParams(encodeURLParams(nextParams), { replace: true });
+        apply(resetPatchState);
+        return;
+      }
+
+      deleteFilters(event, selected);
+    },
+    [apply, decodedParams, deleteFilters, patchFilters, search, setSearchParams],
+  );
 
   const filterConfig = {
     items: [
@@ -101,28 +169,30 @@ const PackageSystems = ({ packageName }) => {
         intl.formatMessage(messages.labelsFiltersSystemsSearchTitle),
         intl.formatMessage(messages.labelsFiltersSystemsSearchPlaceholder),
       ),
-      statusFilter(apply, filter),
-      versionFilter(apply, filter, packageVersions),
+      statusFilter(apply, patchFilters),
+      versionFilter(apply, patchFilters, packageVersions),
     ],
   };
 
   const activeFiltersConfig = useMemo(
     () => ({
       filters: buildFilterChips(
-        filter,
+        patchFilters,
         search,
         intl.formatMessage(messages.labelsFiltersSystemsSearchTitle),
       ),
-      onDelete: deleteFilters,
+      onDelete: handleDeleteFilters,
+      deleteTitle: intl.formatMessage(messages.labelsFiltersClear),
+      showDeleteButton: shouldShowDeleteButton,
     }),
-    [filter, search],
+    [patchFilters, handleDeleteFilters, search, shouldShowDeleteButton],
   );
 
   const constructFilename = (system) => `${system.available_evra}`;
 
   const onSelect = useOnSelect(systems, selectedRows, {
     endpoint: ID_API_ENDPOINTS.packageSystems(packageName),
-    queryParams,
+    queryParams: currentQueryParams,
     selectionDispatcher: systemSelectAction,
     constructFilename,
     apiResponseTransformer: filterRemediatablePackageSystems,
@@ -133,7 +203,7 @@ const PackageSystems = ({ packageName }) => {
 
   const onExport = useOnExport(
     packageName,
-    queryParams,
+    currentQueryParams,
     {
       csv: exportPackageSystemsCSV,
       json: exportPackageSystemsJSON,
@@ -203,7 +273,7 @@ const PackageSystems = ({ packageName }) => {
           customFilters={{
             patchParams: {
               search,
-              filter,
+              filter: patchFilters,
               systemProfile,
               selectedTags,
             },

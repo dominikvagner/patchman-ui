@@ -7,6 +7,7 @@ import {
   SecurityIcon,
 } from '@patternfly/react-icons';
 import { SortByDirection } from '@patternfly/react-table';
+import isDeepEqualReact from 'fast-deep-equal/react';
 import flatten from 'lodash/flatten';
 import findIndex from 'lodash/findIndex';
 import pickBy from 'lodash/pickBy';
@@ -28,6 +29,9 @@ import {
 import { intl } from './IntlProvider';
 import { generateFilter } from '@redhat-cloud-services/frontend-components-utilities/helpers';
 import { InsightsLink } from '@redhat-cloud-services/frontend-components/InsightsLink';
+
+export const isObject = (variable) =>
+  typeof variable === 'object' && variable !== null ? true : false;
 
 export const removeUndefinedObjectItems = (originalObject) => {
   const newObject = JSON.parse(JSON.stringify(originalObject));
@@ -356,6 +360,85 @@ export const decodeQueryparams = (queryString, parsers = {}) => {
 
 const getFilterStringFromApi = (value) => (value === null ? 'null' : String(value));
 
+const normalizeFilterValue = (value) => {
+  if (Array.isArray(value)) {
+    const normalizedValues = value
+      .map((item) => getFilterStringFromApi(item))
+      .sort((a, b) => a.localeCompare(b));
+
+    return normalizedValues.length === 1 ? normalizedValues[0] : normalizedValues;
+  }
+
+  return getFilterStringFromApi(value);
+};
+
+const normalizeStateValue = (value) => {
+  if (Array.isArray(value)) {
+    return normalizeFilterValue(value);
+  } else if (isObject(value)) {
+    return Object.entries(value).reduce((normalizedObject, [key, nestedValue]) => {
+      if (nestedValue === undefined || nestedValue === '' || [].concat(nestedValue).length === 0) {
+        return normalizedObject;
+      }
+
+      const normalizedValue = normalizeStateValue(nestedValue);
+      const shouldSkipObjectValue =
+        isObject(normalizedValue) && Object.keys(normalizedValue).length === 0;
+
+      return shouldSkipObjectValue
+        ? normalizedObject
+        : {
+            ...normalizedObject,
+            [key]: normalizedValue,
+          };
+    }, {});
+  }
+
+  return getFilterStringFromApi(value);
+};
+
+export const normalizeState = (state = {}) =>
+  Object.entries(state).reduce((normalizedState, [key, value]) => {
+    if (value === undefined || value === '' || [].concat(value).length === 0) {
+      return normalizedState;
+    }
+
+    const normalizedValue = normalizeStateValue(value);
+    const shouldSkipObjectValue =
+      isObject(normalizedValue) && Object.keys(normalizedValue).length === 0;
+
+    return shouldSkipObjectValue
+      ? normalizedState
+      : {
+          ...normalizedState,
+          [key]: normalizedValue,
+        };
+  }, {});
+
+export const matchesDefaultState = (currentState = {}, defaultState = {}) =>
+  isDeepEqualReact(normalizeState(currentState), normalizeState(defaultState));
+
+export const buildResetFilterState = (
+  currentState = { filter: {}, search: undefined },
+  defaultState = { filter: {} },
+) => {
+  const currentFilter = currentState.filter || {};
+  const shouldResetSearch =
+    Object.prototype.hasOwnProperty.call(currentState, 'search') ||
+    defaultState.search !== undefined;
+
+  return {
+    ...(shouldResetSearch && { search: defaultState.search ?? '' }),
+    filter: {
+      ...Object.keys(currentFilter).reduce(
+        (resetFilterState, key) => ({ ...resetFilterState, [key]: undefined }),
+        {},
+      ),
+      ...(defaultState.filter || {}),
+    },
+  };
+};
+
 export const buildFilterChips = (filters, search, searchChipLabel = 'Search', parsers = {}) => {
   let filterConfig = [];
   const buildChips = (filters, category) => {
@@ -626,9 +709,6 @@ export const mapGlobalFilters = (tags, workloads = {}) => {
 
   return globalFilterConfig;
 };
-
-export const isObject = (variable) =>
-  typeof variable === 'object' && variable !== null ? true : false;
 
 export const findFilterData = (optionName, options) =>
   options.find((item) => item.label === optionName);
